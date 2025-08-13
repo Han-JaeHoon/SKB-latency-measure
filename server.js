@@ -22,7 +22,7 @@ app.use(express.json());
 
 // 서버 상태 관리
 const serverState = {
-  tcpPort: 8080,
+  tcpPort: 8081, // 포트 변경
   connectedClients: new Map(), // clientId -> clientInfo
   testResults: new Map(), // clientId -> testResults
   isRunning: false
@@ -33,17 +33,20 @@ const tcpServer = net.createServer((socket) => {
   const clientId = `${socket.remoteAddress}:${socket.remotePort}`;
   console.log(`TCP 클라이언트 연결: ${clientId}`);
   
-  // 클라이언트 정보 저장
+  // 클라이언트 정보 저장 (소켓 객체 제외)
   serverState.connectedClients.set(clientId, {
     id: clientId,
     ip: socket.remoteAddress,
     port: socket.remotePort,
-    socket: socket,
     status: 'connected',
     currentTest: null,
     uploadSpeed: 0,
     downloadSpeed: 0
   });
+  
+  // 소켓 객체는 별도로 저장
+  serverState.tcpSockets = serverState.tcpSockets || new Map();
+  serverState.tcpSockets.set(clientId, socket);
 
   // WebSocket으로 클라이언트 목록 업데이트
   io.emit('clientListUpdate', Array.from(serverState.connectedClients.values()));
@@ -83,6 +86,7 @@ const tcpServer = net.createServer((socket) => {
   socket.on('close', () => {
     console.log(`TCP 클라이언트 연결 해제: ${clientId}`);
     serverState.connectedClients.delete(clientId);
+    serverState.tcpSockets.delete(clientId);
     io.emit('clientListUpdate', Array.from(serverState.connectedClients.values()));
   });
 
@@ -120,18 +124,23 @@ io.on('connection', (socket) => {
         const clientId = `${tcpClient.remoteAddress}:${tcpClient.remotePort}`;
         console.log(`TCP 클라이언트 연결됨: ${clientId}`);
         
-        // 클라이언트 정보 저장
+        // 클라이언트 정보 저장 (소켓 객체 제외)
         serverState.connectedClients.set(clientId, {
           id: clientId,
           ip: tcpClient.remoteAddress,
           port: tcpClient.remotePort,
-          socket: tcpClient,
-          webSocket: socket,
           status: 'connected',
           currentTest: null,
           uploadSpeed: 0,
           downloadSpeed: 0
         });
+        
+        // 소켓 객체들은 별도로 저장
+        serverState.tcpSockets = serverState.tcpSockets || new Map();
+        serverState.tcpSockets.set(clientId, tcpClient);
+        
+        serverState.webSockets = serverState.webSockets || new Map();
+        serverState.webSockets.set(clientId, socket);
         
         // WebSocket으로 클라이언트 목록 업데이트
         io.emit('clientListUpdate', Array.from(serverState.connectedClients.values()));
@@ -142,6 +151,7 @@ io.on('connection', (socket) => {
       tcpClient.on('data', (data) => {
         const clientId = `${tcpClient.remoteAddress}:${tcpClient.remotePort}`;
         const clientInfo = serverState.connectedClients.get(clientId);
+        const webSocket = serverState.webSockets.get(clientId);
         
         if (clientInfo && clientInfo.currentTest) {
           // 업로드 테스트 중인 경우
@@ -163,7 +173,9 @@ io.on('connection', (socket) => {
               
               // 진행률 업데이트
               const progress = (clientInfo.currentTest.currentIteration / clientInfo.currentTest.iterations) * 100;
-              clientInfo.webSocket.emit('testProgress', { type: 'upload', progress, speed });
+              if (webSocket) {
+                webSocket.emit('testProgress', { type: 'upload', progress, speed });
+              }
               
               // 다음 테스트 또는 완료
               setTimeout(() => {
@@ -178,6 +190,8 @@ io.on('connection', (socket) => {
         const clientId = `${tcpClient.remoteAddress}:${tcpClient.remotePort}`;
         console.log(`TCP 클라이언트 연결 해제: ${clientId}`);
         serverState.connectedClients.delete(clientId);
+        serverState.tcpSockets.delete(clientId);
+        serverState.webSockets.delete(clientId);
         io.emit('clientListUpdate', Array.from(serverState.connectedClients.values()));
       });
       
@@ -262,15 +276,20 @@ function startTest(clientId, dataSize, iterations) {
 // 업로드 테스트 시작
 function startUploadTest(clientId) {
   const clientInfo = serverState.connectedClients.get(clientId);
-  if (!clientInfo || !clientInfo.currentTest) return;
+  const tcpSocket = serverState.tcpSockets.get(clientId);
+  const webSocket = serverState.webSockets.get(clientId);
+  
+  if (!clientInfo || !clientInfo.currentTest || !tcpSocket) return;
 
   if (clientInfo.currentTest.currentIteration >= clientInfo.currentTest.iterations) {
     // 모든 업로드 테스트 완료
     clientInfo.status = 'upload_completed';
-    clientInfo.webSocket.emit('testCompleted', {
-      type: 'upload',
-      results: clientInfo.currentTest.results
-    });
+    if (webSocket) {
+      webSocket.emit('testCompleted', {
+        type: 'upload',
+        results: clientInfo.currentTest.results
+      });
+    }
     return;
   }
 
@@ -283,7 +302,7 @@ function startUploadTest(clientId) {
     randomData[i] = Math.floor(Math.random() * 256);
   }
 
-  clientInfo.socket.write(randomData);
+  tcpSocket.write(randomData);
   
   io.emit('clientListUpdate', Array.from(serverState.connectedClients.values()));
 }
@@ -310,15 +329,20 @@ function startDownloadTest(clientId, dataSize) {
 // 단일 다운로드 테스트 시작
 function startSingleDownloadTest(clientId) {
   const clientInfo = serverState.connectedClients.get(clientId);
-  if (!clientInfo || !clientInfo.currentTest) return;
+  const tcpSocket = serverState.tcpSockets.get(clientId);
+  const webSocket = serverState.webSockets.get(clientId);
+  
+  if (!clientInfo || !clientInfo.currentTest || !tcpSocket) return;
 
   if (clientInfo.currentTest.currentIteration >= clientInfo.currentTest.iterations) {
     // 모든 다운로드 테스트 완료
     clientInfo.status = 'download_completed';
-    clientInfo.webSocket.emit('testCompleted', {
-      type: 'download',
-      results: clientInfo.currentTest.results
-    });
+    if (webSocket) {
+      webSocket.emit('testCompleted', {
+        type: 'download',
+        results: clientInfo.currentTest.results
+      });
+    }
     return;
   }
 
@@ -331,11 +355,13 @@ function startSingleDownloadTest(clientId) {
     randomData[i] = Math.floor(Math.random() * 256);
   }
 
-  clientInfo.socket.write(randomData);
+  tcpSocket.write(randomData);
   
   // 진행률 업데이트
   const progress = (clientInfo.currentTest.currentIteration / clientInfo.currentTest.iterations) * 100;
-  clientInfo.webSocket.emit('testProgress', { type: 'download', progress, speed: 0 });
+  if (webSocket) {
+    webSocket.emit('testProgress', { type: 'download', progress, speed: 0 });
+  }
   
   io.emit('clientListUpdate', Array.from(serverState.connectedClients.values()));
 }
