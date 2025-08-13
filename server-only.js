@@ -42,6 +42,14 @@ const tcpServer = net.createServer((socket) => {
 
   socket.on('data', (data) => {
     const clientInfo = serverState.connectedClients.get(clientId);
+    
+    // 다운로드 요청 확인
+    if (data.toString() === 'DOWNLOAD_REQUEST') {
+      console.log(`📥 다운로드 요청 받음 - ${clientId}`);
+      startDownloadTest(clientId);
+      return;
+    }
+    
     if (clientInfo && clientInfo.currentTest) {
       // 업로드 테스트 중인 경우
       if (clientInfo.currentTest.type === 'upload') {
@@ -71,9 +79,11 @@ const tcpServer = net.createServer((socket) => {
             clientInfo.status = 'upload_completed';
             clientInfo.uploadSpeed = speed;
             console.log(`✅ 모든 업로드 테스트 완료 - ${clientId}`);
+            console.log(`📤 클라이언트에 다운로드 테스트 시작 신호 전송`);
             
-            // 다운로드 테스트 시작
-            startDownloadTest(clientId);
+            // 클라이언트에 다운로드 테스트 시작 신호 전송
+            const signal = Buffer.from('START_DOWNLOAD');
+            socket.write(signal);
           } else {
             // 다음 업로드 테스트
             setTimeout(() => {

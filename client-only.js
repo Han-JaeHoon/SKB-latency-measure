@@ -55,9 +55,16 @@ function connectToServer(serverIP, serverPort) {
     });
     
     tcpClient.on('data', (data) => {
-      console.log(`📥 서버로부터 데이터 수신: ${data.length} bytes`);
-      // 서버로부터 받은 데이터 처리 (다운로드 테스트)
-      handleDownloadData(data);
+      // 서버로부터 받은 데이터 처리
+      const dataStr = data.toString();
+      
+      if (dataStr === 'START_DOWNLOAD') {
+        console.log('📥 서버로부터 다운로드 테스트 시작 신호 수신');
+        startDownloadTest();
+      } else {
+        // 다운로드 테스트 데이터 처리
+        handleDownloadData(data);
+      }
     });
     
     tcpClient.on('close', () => {
@@ -137,12 +144,13 @@ function startUploadTest(dataSize, iterations) {
 // 단일 업로드 테스트
 function startSingleUploadTest() {
   if (!clientState.currentTest || clientState.currentTest.currentIteration >= clientState.currentTest.iterations) {
-    // 모든 업로드 테스트 완료, 다운로드 테스트 시작
+    // 모든 업로드 테스트 완료
     console.log('✅ 모든 업로드 테스트 완료');
     io.emit('testCompleted', { type: 'upload', results: clientState.currentTest.results });
     
-    // 다운로드 테스트 시작
-    startDownloadTest();
+    // 서버에 다운로드 요청 전송
+    console.log('📤 서버에 다운로드 요청 전송');
+    clientState.tcpSocket.write(Buffer.from('DOWNLOAD_REQUEST'));
     return;
   }
   
