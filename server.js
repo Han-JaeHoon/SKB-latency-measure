@@ -22,7 +22,7 @@ app.use(express.json());
 
 // 서버 상태 관리
 const serverState = {
-  tcpPort: 8081, // 포트 변경
+  tcpPort: 48001, // 포트 변경
   connectedClients: new Map(), // clientId -> clientInfo
   testResults: new Map(), // clientId -> testResults
   isRunning: false
