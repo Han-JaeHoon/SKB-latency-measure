@@ -91,12 +91,12 @@ function connectToServer(serverIP, serverPort) {
 function handleDownloadData(data) {
   console.log(`📥 서버로부터 데이터 수신: ${data.length} bytes`);
   
-  if (clientState.currentTest && clientState.currentTest.type === 'download') {
+  if (clientState.currentTest && clientState.currentTest.type === 'full_test') {
     const endTime = Date.now();
     const transferTime = endTime - clientState.currentTest.startTime;
     const speed = (data.length / 1024 / 1024) / (transferTime / 1000); // MB/s
     
-    clientState.currentTest.results.push({
+    clientState.currentTest.downloadResults.push({
       dataSize: data.length,
       transferTime: transferTime,
       speed: speed
@@ -104,55 +104,53 @@ function handleDownloadData(data) {
     
     console.log(`📥 다운로드 테스트 완료 - 속도: ${speed.toFixed(2)} MB/s`);
     
-    // 진행률 업데이트
-    const progress = (clientState.currentTest.currentIteration / clientState.currentTest.iterations) * 100;
-    io.emit('testProgress', { type: 'download', progress, speed });
+    // 진행률 업데이트 (전체 테스트 기준)
+    const totalProgress = (clientState.currentTest.currentIteration * 2) / (clientState.currentTest.iterations * 2) * 100;
+    io.emit('testProgress', { type: 'download', progress: totalProgress, speed });
     
-    // 다음 다운로드 테스트 또는 완료
+    // 현재 반복 완료, 다음 반복 또는 전체 완료
     if (clientState.currentTest.currentIteration >= clientState.currentTest.iterations) {
-      console.log('✅ 모든 다운로드 테스트 완료');
-      io.emit('testCompleted', { type: 'download', results: clientState.currentTest.results });
+      console.log('✅ 모든 테스트 완료');
+      io.emit('testCompleted', { 
+        type: 'full_test', 
+        uploadResults: clientState.currentTest.uploadResults,
+        downloadResults: clientState.currentTest.downloadResults
+      });
     } else {
-      console.log(`⏳ 다음 다운로드 테스트 대기 중... (${clientState.currentTest.currentIteration + 1}/${clientState.currentTest.iterations})`);
-      setTimeout(() => {
-        startSingleDownloadTest();
-      }, 1000);
+      console.log(`⏳ 다음 반복 대기 중... (${clientState.currentTest.currentIteration + 1}/${clientState.currentTest.iterations})`);
+      // 서버에 다운로드 완료 신호 전송
+      clientState.tcpSocket.write(Buffer.from('DOWNLOAD_COMPLETE'));
     }
   } else {
-    console.log('⚠️ 다운로드 테스트 중이 아닙니다.');
+    console.log('⚠️ 전체 테스트 중이 아닙니다. 현재 테스트:', clientState.currentTest ? clientState.currentTest.type : '없음');
   }
 }
 
-// 업로드 테스트 시작
-function startUploadTest(dataSize, iterations) {
+// 전체 테스트 시작
+function startTest(dataSize, iterations) {
   if (!clientState.isConnected || !clientState.tcpSocket) {
     throw new Error('서버에 연결되지 않았습니다.');
   }
   
   clientState.currentTest = {
-    type: 'upload',
+    type: 'full_test',
     dataSize: dataSize,
     iterations: iterations,
     currentIteration: 0,
-    results: []
+    uploadResults: [],
+    downloadResults: []
   };
   
-  console.log(`🚀 업로드 테스트 시작 - 데이터 크기: ${formatBytes(dataSize)}, 반복: ${iterations}회`);
-  startSingleUploadTest();
+  console.log(`🚀 전체 테스트 시작 - 데이터 크기: ${formatBytes(dataSize)}, 반복: ${iterations}회`);
+  
+  // 서버에 테스트 시작 요청 전송 (반복 횟수 포함)
+  console.log(`📤 서버에 테스트 시작 요청 전송 (반복: ${iterations}회)`);
+  clientState.tcpSocket.write(Buffer.from(`START_TEST:${iterations}`));
 }
 
 // 단일 업로드 테스트
 function startSingleUploadTest() {
-  if (!clientState.currentTest || clientState.currentTest.currentIteration >= clientState.currentTest.iterations) {
-    // 모든 업로드 테스트 완료
-    console.log('✅ 모든 업로드 테스트 완료');
-    io.emit('testCompleted', { type: 'upload', results: clientState.currentTest.results });
-    
-    // 서버에 다운로드 요청 전송
-    console.log('📤 서버에 다운로드 요청 전송');
-    clientState.tcpSocket.write(Buffer.from('DOWNLOAD_REQUEST'));
-    return;
-  }
+  if (!clientState.currentTest) return;
   
   clientState.currentTest.currentIteration++;
   const startTime = Date.now();
@@ -166,33 +164,20 @@ function startSingleUploadTest() {
   // 데이터 전송
   clientState.tcpSocket.write(randomData);
   
-  // 진행률 업데이트
-  const progress = (clientState.currentTest.currentIteration / clientState.currentTest.iterations) * 100;
-  io.emit('testProgress', { type: 'upload', progress, speed: 0 });
+  // 진행률 업데이트 (전체 테스트 기준)
+  const totalProgress = (clientState.currentTest.currentIteration * 2) / (clientState.currentTest.iterations * 2) * 100;
+  io.emit('testProgress', { type: 'upload', progress: totalProgress, speed: 0 });
   
   console.log(`📤 업로드 테스트 ${clientState.currentTest.currentIteration}/${clientState.currentTest.iterations}`);
-  
-  // 다음 테스트 예약
-  setTimeout(() => {
-    startSingleUploadTest();
-  }, 1000);
 }
 
-// 다운로드 테스트 시작
+// 다운로드 테스트 시작 (현재 반복의 다운로드)
 function startDownloadTest() {
   if (!clientState.isConnected || !clientState.tcpSocket) {
     throw new Error('서버에 연결되지 않았습니다.');
   }
   
-  clientState.currentTest = {
-    type: 'download',
-    dataSize: 1048576, // 1MB
-    iterations: 5,
-    currentIteration: 0,
-    results: []
-  };
-  
-  console.log(`🚀 다운로드 테스트 시작`);
+  console.log(`🚀 다운로드 테스트 시작 (${clientState.currentTest.currentIteration}/${clientState.currentTest.iterations})`);
   startSingleDownloadTest();
 }
 
@@ -280,7 +265,7 @@ io.on('connection', (socket) => {
     const { dataSize, iterations } = data;
     
     try {
-      startUploadTest(dataSize, iterations);
+      startTest(dataSize, iterations);
       socket.emit('testStarted', { success: true });
     } catch (error) {
       socket.emit('testStarted', { success: false, error: error.message });
