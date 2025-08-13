@@ -20,12 +20,14 @@ app.use(cors());
 app.use(express.static('public'));
 app.use(express.json());
 
-// 서버 상태 관리
-const serverState = {
-  tcpPort: 48001, // 포트 변경
-  connectedClients: new Map(), // clientId -> clientInfo
-  testResults: new Map(), // clientId -> testResults
-  isRunning: false
+// 클라이언트 상태 관리
+const clientState = {
+  serverIP: '',
+  serverPort: 48001,
+  tcpSocket: null,
+  isConnected: false,
+  currentTest: null,
+  testResults: []
 };
 
 // TCP 서버 생성
