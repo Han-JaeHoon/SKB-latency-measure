@@ -433,8 +433,11 @@ function generateFullCSV(results) {
 }
 
 // 서버 시작
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`웹 서버가 포트 ${PORT}에서 실행 중입니다.`);
-  console.log(`http://localhost:${PORT} 에서 접속하세요.`);
+const PORT = process.env.PORT || 8331;
+const HOST = process.env.HOST || '0.0.0.0'; // 모든 IP에서 접속 허용
+
+server.listen(PORT, HOST, () => {
+  console.log(`웹 서버가 ${HOST}:${PORT}에서 실행 중입니다.`);
+  console.log(`내부 접속: http://localhost:${PORT}`);
+  console.log(`외부 접속: http://[서버IP]:${PORT}`);
 });

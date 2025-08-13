@@ -1,5 +1,5 @@
 # Dependencies
-node_modules/
+# node_modules/  # 주석 처리하여 Git에 포함
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
