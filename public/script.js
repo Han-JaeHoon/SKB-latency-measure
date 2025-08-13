@@ -124,33 +124,45 @@ function getStatusText(status) {
 
 // 서버에 연결
 function connectToServer() {
+    console.log('🔗 connectToServer 함수 호출됨');
+    
     const serverIP = document.getElementById('serverIPInput').value;
     const serverPort = parseInt(document.getElementById('serverPortInput').value);
     
+    console.log(`📝 입력된 값 - IP: ${serverIP}, Port: ${serverPort}`);
+    
     if (!serverIP || !serverPort) {
+        console.error('❌ 서버 IP 또는 포트가 입력되지 않음');
         alert('서버 IP와 포트를 입력해주세요.');
         return;
     }
     
+    console.log('🔄 연결 상태 업데이트 중...');
     updateConnectionStatus('connecting');
     
+    console.log('📡 WebSocket을 통해 서버 연결 요청 전송...');
     // WebSocket을 통해 서버에 연결 요청
-    socket.emit('connectToTCP', { serverIP, serverPort }, function(response) {
-        if (response.success) {
-            console.log('TCP 서버에 연결됨');
+    socket.emit('connectToServer', { serverIP, serverPort }, function(response) {
+        console.log('📨 서버로부터 응답 받음:', response);
+        if (response && response.success) {
+            console.log('✅ TCP 서버에 연결됨');
             updateConnectionStatus('connected');
             document.getElementById('startTestBtn').disabled = false;
         } else {
-            console.error('TCP 연결 실패:', response.error);
+            console.error('❌ TCP 연결 실패:', response ? response.error : '응답 없음');
             updateConnectionStatus('error');
-            alert('서버 연결에 실패했습니다: ' + response.error);
+            alert('서버 연결에 실패했습니다: ' + (response ? response.error : '알 수 없는 오류'));
         }
     });
+    
+    console.log('📤 연결 요청 완료');
 }
 
 // 연결 상태 업데이트
 function updateConnectionStatus(status) {
+    console.log('🔄 연결 상태 업데이트:', status);
     const statusElement = document.getElementById('connectionStatus');
+    const startTestBtn = document.getElementById('startTestBtn');
     let badgeClass = '';
     let statusText = '';
     
@@ -158,22 +170,28 @@ function updateConnectionStatus(status) {
         case 'connecting':
             badgeClass = 'bg-warning';
             statusText = '<span class="spinner"></span>연결 중...';
+            startTestBtn.disabled = true;
             break;
         case 'connected':
             badgeClass = 'bg-success';
             statusText = '연결됨';
+            startTestBtn.disabled = false;
+            console.log('✅ 테스트 시작 버튼 활성화');
             break;
         case 'disconnected':
             badgeClass = 'bg-secondary';
             statusText = '연결되지 않음';
+            startTestBtn.disabled = true;
             break;
         case 'error':
             badgeClass = 'bg-danger';
             statusText = '연결 오류';
+            startTestBtn.disabled = true;
             break;
     }
     
     statusElement.innerHTML = `<span class="badge ${badgeClass}">${statusText}</span>`;
+    console.log('📊 연결 상태 업데이트 완료:', statusText);
 }
 
 // 테스트 시작

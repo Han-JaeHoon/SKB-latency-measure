@@ -33,9 +33,19 @@ const clientState = {
 // TCP 클라이언트 연결 함수
 function connectToServer(serverIP, serverPort) {
   return new Promise((resolve, reject) => {
+    console.log(`🔗 서버 연결 시도: ${serverIP}:${serverPort}`);
+    
     const tcpClient = new net.Socket();
     
+    // 연결 타임아웃 설정 (10초)
+    const timeout = setTimeout(() => {
+      console.log('⏰ 연결 타임아웃');
+      tcpClient.destroy();
+      reject(new Error('연결 타임아웃'));
+    }, 10000);
+    
     tcpClient.connect(serverPort, serverIP, () => {
+      clearTimeout(timeout);
       console.log(`✅ 서버에 연결됨: ${serverIP}:${serverPort}`);
       clientState.tcpSocket = tcpClient;
       clientState.isConnected = true;
@@ -45,11 +55,13 @@ function connectToServer(serverIP, serverPort) {
     });
     
     tcpClient.on('data', (data) => {
+      console.log(`📥 서버로부터 데이터 수신: ${data.length} bytes`);
       // 서버로부터 받은 데이터 처리 (다운로드 테스트)
       handleDownloadData(data);
     });
     
     tcpClient.on('close', () => {
+      clearTimeout(timeout);
       console.log('🔴 서버 연결이 종료되었습니다.');
       clientState.isConnected = false;
       clientState.tcpSocket = null;
@@ -57,7 +69,10 @@ function connectToServer(serverIP, serverPort) {
     });
     
     tcpClient.on('error', (err) => {
+      clearTimeout(timeout);
       console.error('❌ 서버 연결 오류:', err);
+      console.error('   오류 코드:', err.code);
+      console.error('   오류 메시지:', err.message);
       clientState.isConnected = false;
       clientState.tcpSocket = null;
       reject(err);
@@ -67,6 +82,8 @@ function connectToServer(serverIP, serverPort) {
 
 // 다운로드 데이터 처리
 function handleDownloadData(data) {
+  console.log(`📥 서버로부터 데이터 수신: ${data.length} bytes`);
+  
   if (clientState.currentTest && clientState.currentTest.type === 'download') {
     const endTime = Date.now();
     const transferTime = endTime - clientState.currentTest.startTime;
@@ -89,10 +106,13 @@ function handleDownloadData(data) {
       console.log('✅ 모든 다운로드 테스트 완료');
       io.emit('testCompleted', { type: 'download', results: clientState.currentTest.results });
     } else {
+      console.log(`⏳ 다음 다운로드 테스트 대기 중... (${clientState.currentTest.currentIteration + 1}/${clientState.currentTest.iterations})`);
       setTimeout(() => {
-        startDownloadTest();
+        startSingleDownloadTest();
       }, 1000);
     }
+  } else {
+    console.log('⚠️ 다운로드 테스트 중이 아닙니다.');
   }
 }
 
@@ -212,18 +232,37 @@ io.on('connection', (socket) => {
   });
   
   // 서버 연결 요청
-  socket.on('connectToServer', async (data) => {
+  socket.on('connectToServer', async (data, callback) => {
+    console.log('🌐 WebSocket에서 connectToServer 이벤트 수신:', data);
     const { serverIP, serverPort } = data;
     
     try {
+      console.log('🔗 TCP 서버 연결 시도...');
       await connectToServer(serverIP, serverPort);
+      console.log('✅ TCP 서버 연결 성공');
+      
+      // 성공 응답 전송
+      if (callback) {
+        callback({ success: true });
+      }
+      
+      // 상태 업데이트 이벤트 전송
       socket.emit('connectionStatus', { status: 'connected' });
       socket.emit('clientState', {
         isConnected: true,
         serverIP: clientState.serverIP,
         serverPort: clientState.serverPort
       });
+      
+      console.log('📤 연결 성공 응답 전송 완료');
     } catch (error) {
+      console.error('❌ TCP 서버 연결 실패:', error);
+      
+      // 실패 응답 전송
+      if (callback) {
+        callback({ success: false, error: error.message });
+      }
+      
       socket.emit('connectionStatus', { status: 'error', error: error.message });
     }
   });

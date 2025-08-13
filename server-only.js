@@ -7,6 +7,7 @@ const serverState = {
   tcpPort: 48001,
   connectedClients: new Map(), // clientId -> clientInfo
   testResults: new Map(), // clientId -> testResults
+  tcpSockets: new Map(), // clientId -> socket
   isRunning: false
 };
 
@@ -32,6 +33,9 @@ const tcpServer = net.createServer((socket) => {
     downloadSpeed: 0,
     connectTime: new Date()
   });
+
+  // 소켓 객체 저장
+  serverState.tcpSockets.set(clientId, socket);
 
   // 연결된 클라이언트 목록 출력
   printClientList();
@@ -84,6 +88,7 @@ const tcpServer = net.createServer((socket) => {
   socket.on('close', () => {
     console.log(`\n🔴 TCP 클라이언트 연결 해제: ${clientId}`);
     serverState.connectedClients.delete(clientId);
+    serverState.tcpSockets.delete(clientId);
     printClientList();
   });
 
@@ -182,11 +187,9 @@ function startSingleDownloadTest(clientId) {
   console.log(`📥 다운로드 테스트 ${clientInfo.currentTest.currentIteration}/${clientInfo.currentTest.iterations} - ${clientId}`);
 }
 
-// 클라이언트 소켓 가져오기 (간단한 구현)
+// 클라이언트 소켓 가져오기
 function getClientSocket(clientId) {
-  // 실제 구현에서는 소켓 객체를 저장해야 함
-  // 여기서는 간단히 구현
-  return null;
+  return serverState.tcpSockets.get(clientId);
 }
 
 // 테스트 결과 저장
